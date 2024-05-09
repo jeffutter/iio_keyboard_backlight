@@ -1,0 +1,16 @@
+[package]
+name = "iio_keyboard_backlight"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+industrial-io = { version = "0.5.2", default-features = false }
+logind-zbus = "4.0.3"
+yata = { version = "0.7.0", default-features = false }
+zbus = { version = "4.2.0", default-features = false }
+
+[profile.release]
+codegen-units = 1
+opt-level = "z"
