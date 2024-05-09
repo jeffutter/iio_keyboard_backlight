@@ -14,7 +14,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Install iio
-        run: sudo apt-get install -y libiio-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libiio-dev
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
