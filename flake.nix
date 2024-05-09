@@ -1,38 +1,89 @@
 {
   inputs = {
-    naersk.url = "github:nix-community/naersk/master";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    utils.url = "github:numtide/flake-utils";
+    flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+      };
+    };
+    crane = {
+      url = "github:ipetkov/crane";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+      };
+    };
   };
 
   outputs =
     {
       self,
       nixpkgs,
-      utils,
-      naersk,
+      flake-utils,
+      rust-overlay,
+      crane,
     }:
-    utils.lib.eachDefaultSystem (
+    flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
-        naersk-lib = pkgs.callPackage naersk { };
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs { inherit system overlays; };
+
+        lib = nixpkgs.lib;
+        craneLib = crane.lib.${system};
+
+        src = lib.cleanSourceWith { src = craneLib.path ./.; };
+
+        envVars =
+          { }
+          // (lib.attrsets.optionalAttrs pkgs.stdenv.isLinux {
+            RUSTFLAGS = "-Clinker=clang -Clink-arg=--ld-path=${pkgs.mold}/bin/mold";
+          });
+
+        commonArgs = (
+          {
+            inherit src;
+            buildInputs =
+              with pkgs;
+              [
+                rust-bin.stable.latest.default
+                cargo
+                rust-analyzer
+                rustc
+                libiio
+              ]
+              ++ lib.optionals stdenv.isDarwin [ libiconv ];
+          }
+          // envVars
+        );
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+        bin = craneLib.buildPackage (commonArgs // { inherit cargoArtifacts; });
       in
+      with pkgs;
       {
-        defaultPackage = naersk-lib.buildPackage ./.;
-        devShell =
-          with pkgs;
-          mkShell {
-            buildInputs = [
+        packages = {
+          default = bin;
+        };
+
+        devShells.default = mkShell (
+          {
+            packages = [
+              rust-bin.stable.latest.default
               cargo
+              cargo-watch
+              rust-analyzer
               rustc
               rustfmt
-              pre-commit
-              rustPackages.clippy
               libiio
             ];
-            RUST_SRC_PATH = rustPlatform.rustLibSrc;
-          };
+          }
+          // envVars
+        );
+
+        formatter = nixpkgs-fmt;
       }
     );
 }
