@@ -40,6 +40,7 @@
           { }
           // (lib.attrsets.optionalAttrs pkgs.stdenv.isLinux {
             RUSTFLAGS = "-Clinker=clang -Clink-arg=--ld-path=${pkgs.mold}/bin/mold";
+            # LD_LIBRARY_PATH = "${pkgs.libiio.lib}/lib";
           });
 
         commonArgs = (
@@ -52,7 +53,7 @@
                 cargo
                 rust-analyzer
                 rustc
-                libiio
+                libiio.lib
               ]
               ++ lib.optionals stdenv.isDarwin [ libiconv ];
           }
@@ -77,7 +78,7 @@
               rust-analyzer
               rustc
               rustfmt
-              libiio
+              libiio.lib
             ];
           }
           // envVars
