@@ -46,17 +46,14 @@
         commonArgs = (
           {
             inherit src;
-            buildInputs =
-              with pkgs;
-              [
-                rust-bin.stable.latest.default
-                cargo
-                clang
-                rust-analyzer
-                rustc
-                libiio.lib
-              ]
-              ++ lib.optionals stdenv.isDarwin [ libiconv ];
+            nativeBuildInputs = with pkgs; [
+              rust-bin.stable.latest.default
+              cargo
+              clang
+              rust-analyzer
+              rustc
+            ];
+            buildInputs = with pkgs; [ libiio.lib ] ++ lib.optionals stdenv.isDarwin [ libiconv ];
           }
           // envVars
         );
