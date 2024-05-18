@@ -13,7 +13,7 @@ industrial-io = { version = "0.5.2", default-features = false }
 log = "0.4.21"
 logind-zbus = "4.0.3"
 yata = { version = "0.7.0", default-features = false }
-zbus = { version = "4.2.0", default-features = false }
+zbus = { version = "4.2.1", default-features = false }
 
 [profile.release]
 lto = true
