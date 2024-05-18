@@ -59,7 +59,19 @@
         );
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        bin = craneLib.buildPackage (commonArgs // { inherit cargoArtifacts; });
+        bin = craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+          }
+          // {
+            preFixup = lib.optionalString pkgs.stdenv.isLinux ''
+              patchelf \
+                --add-needed "${pkgs.libiio.lib}/lib/libiio.so.0" \
+                $out/bin/iio_ambient_brightness
+            '';
+          }
+        );
       in
       with pkgs;
       {
