@@ -66,7 +66,7 @@ impl<'a, 'b> KBDBrightness<'a, 'b> {
         let new_level = match new_val {
             v if v < 50 => 3,
             v if v < 60 => 2,
-            v if v < 70 => 1,
+            v if v < 80 => 1,
             _ => 0,
         };
 
@@ -134,6 +134,7 @@ impl<'a, 'b> ScreenBrightness<'a, 'b> {
             v if v < 50 => 30,
             v if v < 60 => 35,
             v if v < 70 => 40,
+            v if v < 80 => 45,
             _ => 50,
         };
 
@@ -142,8 +143,8 @@ impl<'a, 'b> ScreenBrightness<'a, 'b> {
         let cur_brightness = self.read()?;
 
         debug!(
-            "Backlight: nv:{:?}, nl:{:?}, cb:{:?}",
-            new_val, new_level, cur_brightness
+            "Backlight: nv:{:?}, np:{:?}, nl:{:?}, cb:{:?}",
+            new_val, new_pct, new_level, cur_brightness
         );
         if cur_brightness != new_level {
             info!(
