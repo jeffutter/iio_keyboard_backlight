@@ -51,6 +51,7 @@
               [
                 rust-bin.stable.latest.default
                 cargo
+                clang
                 rust-analyzer
                 rustc
                 libiio.lib
