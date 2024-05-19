@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.86"
 clap = { version = "4.5.4", features = ["derive"] }
 crossbeam = "0.8.4"
+ctrlc = "3.4.4"
 env_logger = "0.11.3"
 industrial-io = { version = "0.5.2", default-features = false }
 log = "0.4.21"
