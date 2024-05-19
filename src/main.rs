@@ -5,14 +5,14 @@ mod screen_brightness;
 use std::{
     env, fs,
     io::Write,
-    os::unix::net::{UnixListener, UnixStream},
     path::Path,
+    sync::atomic::{self, AtomicBool},
     thread,
     time::Duration,
 };
 
 use ambient_brightness::AmbientBrightness;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossbeam::{
     channel::{after, bounded, tick},
@@ -22,6 +22,7 @@ use env_logger::Env;
 use kbd_brightness::KBDBrightness;
 use log::{debug, info, trace};
 use logind_zbus::session::SessionProxyBlocking;
+use mio::{net::UnixListener, Events, Interest, Poll, Token};
 use screen_brightness::ScreenBrightness;
 use zbus::{
     blocking::Connection,
@@ -58,8 +59,11 @@ fn update(
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
+    let exit_bool = AtomicBool::new(false);
+    let exit_bool1 = AtomicBool::new(false);
     let (close_sender, close_receiver) = bounded(1);
     ctrlc::set_handler(move || {
+        exit_bool.store(true, atomic::Ordering::Relaxed);
         close_sender
             .send(())
             .expect("Could not send signal on channel.")
@@ -78,22 +82,42 @@ fn main() -> Result<()> {
         let mut screen_brightness = ScreenBrightness::new(&proxy, "backlight", "intel_backlight")?;
         let (command_sender, command_receiver) = bounded(1);
 
-        let _join_handle: thread::JoinHandle<Result<()>> = thread::spawn(move || {
+        let join_handle: thread::JoinHandle<Result<()>> = thread::spawn(move || {
             let socket_path = Path::new(&env::temp_dir()).join("ambient_brightness.sock");
             fs::remove_file(socket_path.clone())?;
-            let listener = UnixListener::bind(socket_path)?;
+            let mut listener = UnixListener::bind(socket_path)?;
+            let mut poll = Poll::new()?;
+            let mut events = Events::with_capacity(1024);
+            poll.registry().register(
+                &mut listener,
+                Token(0),
+                Interest::READABLE | Interest::WRITABLE,
+            )?;
 
             loop {
-                let (mut socket, _addr) = listener.accept()?;
-                let socket_read = socket.read_u8(Endian::native())?;
-                debug!("Got Message: {}", socket_read);
+                if exit_bool1.load(atomic::Ordering::Relaxed) {
+                    break;
+                }
+                poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
-                match socket_read {
-                    0 => command_sender.send(0)?,
-                    1 => command_sender.send(1)?,
-                    _ => (),
+                for event in &events {
+                    debug!("Event: {:?}", event);
+                    if event.token() == Token(0) && event.is_readable() {
+                        let (mut socket, _addr) = listener.accept()?;
+                        let socket_read = socket.read_u8(Endian::native())?;
+                        debug!("Got Message: {}", socket_read);
+
+                        match socket_read {
+                            0 => command_sender.send(0)?,
+                            1 => command_sender.send(1)?,
+                            _ => (),
+                        }
+                    }
                 }
             }
+
+            info!("Server Thread Exiting");
+            Ok(())
         });
 
         let ticker = tick(Duration::from_secs(5));
@@ -124,9 +148,14 @@ fn main() -> Result<()> {
                 },
             }
         }
+
+        info!("Waiting for Server Thread to stop.");
+        join_handle
+            .join()
+            .map_err(|e| anyhow!("Error waiting for Server Thread: {:?}", e))??;
     } else {
         let socket_path = Path::new(&env::temp_dir()).join("ambient_brightness.sock");
-        let mut client = UnixStream::connect(socket_path)?;
+        let mut client = std::os::unix::net::UnixStream::connect(socket_path)?;
         if args.dim {
             client.write_u8(Endian::native(), 0)?;
         } else {
