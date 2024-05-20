@@ -28,16 +28,74 @@ use ouroboros::self_referencing;
 use screen_brightness::ScreenBrightness;
 use zbus::blocking::Connection;
 
-use crate::{control_client::ControlClient, control_server::ControlServer};
+use crate::{
+    control_client::ControlClient,
+    control_server::{Command, ControlServer},
+};
 
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    #[arg(short, default_value_t = false)]
+    /// Server
+    #[arg(
+        short,
+        required_unless_present = "activity",
+        required_unless_present = "offset",
+        conflicts_with = "activity",
+        conflicts_with = "offset",
+        default_value_t = false
+    )]
     server: bool,
 
-    #[arg(short, conflicts_with = "server", default_value_t = false)]
-    dim: bool,
+    #[command(flatten)]
+    idle: Idle,
+
+    #[command(flatten)]
+    offset: Offset,
+}
+
+#[derive(Parser)]
+#[group(required = false, multiple = false)]
+struct Idle {
+    /// Idle Idle
+    #[arg(
+        short,
+        group = "activity",
+        conflicts_with = "server",
+        default_value_t = false
+    )]
+    idle: bool,
+
+    /// Not Idle Idle
+    #[arg(
+        short,
+        group = "activity",
+        conflicts_with = "server",
+        default_value_t = false
+    )]
+    active: bool,
+}
+
+#[derive(Parser)]
+#[group(required = false, multiple = false)]
+struct Offset {
+    /// Increase
+    #[arg(
+        long,
+        group = "offset",
+        conflicts_with = "server",
+        default_value = None
+    )]
+    increase: Option<i8>,
+
+    /// Decrease
+    #[arg(
+        long,
+        group = "offset",
+        conflicts_with = "server",
+        default_value = None
+    )]
+    decrease: Option<i8>,
 }
 
 fn read_value(path: &str) -> Result<u32> {
@@ -57,11 +115,11 @@ struct AmbientBrightnessController<'a> {
     #[not_covariant]
     screen_brightness: ScreenBrightness<'this>,
     close_receiver: Receiver<()>,
-    command_receiver: Receiver<u8>,
+    command_receiver: Receiver<Command>,
 }
 
 impl<'a> AmbientBrightnessController<'a> {
-    fn create(close_receiver: Receiver<()>, command_receiver: Receiver<u8>) -> Result<Self> {
+    fn create(close_receiver: Receiver<()>, command_receiver: Receiver<Command>) -> Result<Self> {
         let connection = Connection::system()?;
         let proxy = SessionProxyBlocking::builder(&connection)
             .path("/org/freedesktop/login1/session/auto")?
@@ -101,17 +159,30 @@ impl<'a> AmbientBrightnessController<'a> {
                     info!("Received Shutdown");
                     break
                 },
-                recv(self.borrow_command_receiver()) -> msg => match msg? {
-                    0 => {
-                        self.with_ambient_brightness_mut(|x| x.dim());
-                        self.update()?
+                recv(self.borrow_command_receiver()) -> msg => match msg {
+                    Err(e) => {
+                        info!("Command Channel Terminated: #{:#}", e);
+                        break;
                     },
+                    Ok(msg) => match msg {
+                        Command::Idle => {
+                            self.with_ambient_brightness_mut(|x| x.idle());
+                            self.update()?
+                        },
 
-                    1 => {
-                        self.with_ambient_brightness_mut(|x| x.undim());
-                        self.update()?
+                        Command::Active => {
+                            self.with_ambient_brightness_mut(|x| x.active());
+                            self.update()?
+                        },
+                        Command::Increase(amount) => {
+                            self.with_screen_brightness_mut(|x| x.increase(amount));
+                            self.update()?
+                        },
+                        Command::Decrease(amount) => {
+                            self.with_screen_brightness_mut(|x| x.decrease(amount));
+                            self.update()?
+                        }
                     },
-                    _ => ()
                 },
                 recv(ticker) -> _  => {
                         self.update()?
@@ -154,11 +225,20 @@ fn main() -> Result<()> {
     } else {
         let mut client = ControlClient::new()?;
 
-        if args.dim {
-            client.dim()?;
-        } else {
-            client.undim()?;
+        if args.idle.idle {
+            client.idle()?;
         }
+        if args.idle.active {
+            client.active()?;
+        }
+
+        if let Some(amount) = args.offset.increase {
+            client.increase(amount)?;
+        }
+        if let Some(amount) = args.offset.decrease {
+            client.decrease(amount)?;
+        }
+
         info!("Done");
     }
 

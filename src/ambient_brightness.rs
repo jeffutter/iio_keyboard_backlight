@@ -7,7 +7,7 @@ pub(crate) struct AmbientBrightness {
     chan: Channel,
     max: u32,
     wma: Option<WMA>,
-    dim: bool,
+    idle: bool,
 }
 
 impl AmbientBrightness {
@@ -22,7 +22,7 @@ impl AmbientBrightness {
             chan,
             max,
             wma: None,
-            dim: false,
+            idle: false,
         })
     }
 
@@ -51,21 +51,21 @@ impl AmbientBrightness {
         let new_pct = (new_val * 100f64) / self.max as f64;
         trace!("New PCT: {}", new_pct);
 
-        let dimmed = if self.dim { new_pct / 4f64 } else { new_pct };
-        trace!("Dimmed: {}", dimmed);
+        let idlemed = if self.idle { new_pct / 4f64 } else { new_pct };
+        trace!("Idlemed: {}", idlemed);
 
         debug!(
-            "Ambient - val:{:.4}, max_val:{:.4}, new_val:{:.4}, new_pct:{:.4}, dimmed:{:.4}",
-            val, max_val, new_val, new_pct, dimmed
+            "Ambient - val:{:.4}, max_val:{:.4}, new_val:{:.4}, new_pct:{:.4}, idlemed:{:.4}",
+            val, max_val, new_val, new_pct, idlemed
         );
-        Ok(dimmed.round() as u32)
+        Ok(idlemed.round() as u32)
     }
 
-    pub(crate) fn dim(&mut self) {
-        self.dim = true;
+    pub(crate) fn idle(&mut self) {
+        self.idle = true;
     }
 
-    pub(crate) fn undim(&mut self) {
-        self.dim = false;
+    pub(crate) fn active(&mut self) {
+        self.idle = false;
     }
 }

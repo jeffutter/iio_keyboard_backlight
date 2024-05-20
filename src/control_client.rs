@@ -15,14 +15,28 @@ impl ControlClient {
         Ok(Self { client })
     }
 
-    pub fn dim(&mut self) -> Result<()> {
+    pub fn idle(&mut self) -> Result<()> {
         self.client.write_u8(0)?;
         self.client.flush()?;
         Ok(())
     }
 
-    pub fn undim(&mut self) -> Result<()> {
+    pub fn active(&mut self) -> Result<()> {
         self.client.write_u8(1)?;
+        self.client.flush()?;
+        Ok(())
+    }
+
+    pub fn increase(&mut self, amount: i8) -> Result<()> {
+        self.client.write_u8(2)?;
+        self.client.write_i8(amount)?;
+        self.client.flush()?;
+        Ok(())
+    }
+
+    pub fn decrease(&mut self, amount: i8) -> Result<()> {
+        self.client.write_u8(3)?;
+        self.client.write_i8(amount)?;
         self.client.flush()?;
         Ok(())
     }

@@ -9,6 +9,7 @@ pub(crate) struct ScreenBrightness<'a> {
     subsystem: &'a str,
     name: &'a str,
     max_brightness: u32,
+    offset: i8,
 }
 
 impl<'a> ScreenBrightness<'a> {
@@ -25,6 +26,7 @@ impl<'a> ScreenBrightness<'a> {
             subsystem,
             name,
             max_brightness,
+            offset: 0,
         })
     }
 
@@ -40,7 +42,7 @@ impl<'a> ScreenBrightness<'a> {
     }
 
     pub(crate) fn adjust(&self, new_val: u32) -> Result<()> {
-        let new_pct = match new_val {
+        let new_pct: u32 = match new_val {
             v if v < 1 => 5,
             v if v < 10 => 10,
             v if v < 20 => 15,
@@ -53,23 +55,38 @@ impl<'a> ScreenBrightness<'a> {
             _ => 50,
         };
 
-        let new_level = self.pct_to_brightness(new_pct);
+        let offset_new_pct = match self.offset {
+            0..=i8::MAX => new_pct.saturating_add(self.offset.unsigned_abs() as u32),
+            i8::MIN..=-1 => new_pct.saturating_add(self.offset.unsigned_abs() as u32),
+        };
+
+        let new_level = self
+            .pct_to_brightness(offset_new_pct)
+            .min(self.max_brightness);
 
         let cur_brightness = self.read()?;
 
         debug!(
-            "Backlight: nv:{:?}, np:{:?}, nl:{:?}, cb:{:?}",
-            new_val, new_pct, new_level, cur_brightness
+            "Backlight: nv:{:?}, np:{:?}, onp:{:?}, nl:{:?}, cb:{:?}",
+            new_val, new_pct, offset_new_pct, new_level, cur_brightness
         );
         if cur_brightness != new_level {
             info!(
-                "Adjusting Screen Backlight: val:{:?} old:{:?} new:{:?}->{:?}",
-                new_val, cur_brightness, new_pct, new_level
+                "Adjusting Screen Backlight: val:{:?} old:{:?} new:{:?}({:?})->{:?}",
+                new_val, cur_brightness, new_pct, offset_new_pct, new_level
             );
             self.proxy
                 .set_brightness(self.subsystem, self.name, new_level)?;
         }
 
         Ok(())
+    }
+
+    pub(crate) fn increase(&mut self, amount: i8) {
+        self.offset += amount;
+    }
+
+    pub(crate) fn decrease(&mut self, amount: i8) {
+        self.offset -= amount;
     }
 }
