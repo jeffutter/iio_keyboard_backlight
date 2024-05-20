@@ -1,7 +1,10 @@
 use std::{
     env, fs,
     path::Path,
-    sync::atomic::{self, AtomicBool},
+    sync::{
+        atomic::{self, AtomicBool},
+        Arc,
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -9,7 +12,7 @@ use std::{
 use anyhow::Result;
 use byteorder::ReadBytesExt;
 use crossbeam::channel::{bounded, Receiver, Sender};
-use log::debug;
+use log::{debug, info};
 use mio::{net::UnixListener, Events, Interest, Poll, Token};
 
 pub struct ControlServer {
@@ -41,13 +44,16 @@ impl ControlServer {
         ))
     }
 
-    pub fn run(mut self, exit_bool: AtomicBool) -> JoinHandle<Result<()>> {
+    pub fn run(mut self, exit_bool: Arc<AtomicBool>) -> JoinHandle<Result<()>> {
         thread::spawn(move || {
             let mut events = Events::with_capacity(1024);
+
             loop {
                 if exit_bool.load(atomic::Ordering::Relaxed) {
+                    info!("Control Server Shutting Down");
                     break;
                 }
+
                 self.poll
                     .poll(&mut events, Some(Duration::from_millis(100)))?;
 

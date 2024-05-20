@@ -6,12 +6,15 @@ mod screen_brightness;
 
 use std::{
     fs,
-    sync::atomic::{self, AtomicBool},
+    sync::{
+        atomic::{self, AtomicBool},
+        Arc,
+    },
     time::Duration,
 };
 
 use ambient_brightness::AmbientBrightness;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use crossbeam::{
     channel::{bounded, tick, Receiver},
@@ -95,6 +98,7 @@ impl<'a> AmbientBrightnessController<'a> {
         loop {
             select! {
                 recv(self.borrow_close_receiver()) -> _ => {
+                    info!("Received Shutdown");
                     break
                 },
                 recv(self.borrow_command_receiver()) -> msg => match msg? {
@@ -114,30 +118,33 @@ impl<'a> AmbientBrightnessController<'a> {
                 },
             }
         }
+
         Ok(())
     }
 }
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("warn")).init();
-    let exit_bool = AtomicBool::new(false);
-    let exit_bool1 = AtomicBool::new(false);
+    let exit_bool = Arc::new(AtomicBool::new(false));
     let (close_sender, close_receiver) = bounded(1);
+
+    let exit_bool1 = exit_bool.clone();
     ctrlc::set_handler(move || {
-        exit_bool.store(true, atomic::Ordering::Relaxed);
+        exit_bool1.store(true, atomic::Ordering::Relaxed);
         close_sender
             .send(())
             .expect("Could not send signal on channel.")
     })
-    .expect("Error setting Ctrl-C handler");
+    .context("Error setting Ctrl-C handler")?;
+
     let args = Args::parse();
 
     if args.server {
         let (control_server, command_receiver) = ControlServer::new()?;
         let ambient_brightness_controller =
             AmbientBrightnessController::create(close_receiver, command_receiver)?;
-        let join_handle = control_server.run(exit_bool1);
 
+        let join_handle = control_server.run(exit_bool.clone());
         ambient_brightness_controller.run()?;
 
         info!("Waiting for Server Thread to stop.");
