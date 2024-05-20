@@ -75,6 +75,17 @@ jobs:
           else
             shasum -a 256 $RELEASE_NAME.tar.gz > $RELEASE_NAME.sha256
           fi
+
+      - uses: cachix/install-nix-action@V27
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: cachix/cachix-action@v14
+        with:
+          name: jeffutter
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      - run: nix build --accept-flake-config
+      - run: nix flake check --accept-flake-config
+
       - name: Releasing assets
         uses: softprops/action-gh-release@v2
         with:
