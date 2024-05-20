@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
+byteorder = "1.5.0"
 clap = { version = "4.5.4", features = ["derive"] }
 crossbeam = "0.8.4"
 ctrlc = "3.4.4"
@@ -15,6 +16,7 @@ industrial-io = { version = "0.5.2", default-features = false }
 log = "0.4.21"
 logind-zbus = "4.0.3"
 mio = { version = "0.8.11", features = ["net", "os-poll"] }
+ouroboros = "0.18.3"
 yata = { version = "0.7.0", default-features = false }
 zbus = { version = "4.2.0", default-features = false }
 

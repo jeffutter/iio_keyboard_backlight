@@ -4,16 +4,16 @@ use logind_zbus::session::SessionProxyBlocking;
 
 use crate::read_value;
 
-pub(crate) struct ScreenBrightness<'a, 'b> {
-    proxy: &'a SessionProxyBlocking<'b>,
+pub(crate) struct ScreenBrightness<'a> {
+    proxy: &'a SessionProxyBlocking<'a>,
     subsystem: &'a str,
     name: &'a str,
     max_brightness: u32,
 }
 
-impl<'a, 'b> ScreenBrightness<'a, 'b> {
+impl<'a> ScreenBrightness<'a> {
     pub(crate) fn new(
-        proxy: &'a SessionProxyBlocking<'b>,
+        proxy: &'a SessionProxyBlocking<'a>,
         subsystem: &'a str,
         name: &'a str,
     ) -> Result<Self> {

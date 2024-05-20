@@ -1,13 +1,12 @@
 mod ambient_brightness;
+mod control_client;
+mod control_server;
 mod kbd_brightness;
 mod screen_brightness;
 
 use std::{
-    env, fs,
-    io::Write,
-    path::Path,
+    fs,
     sync::atomic::{self, AtomicBool},
-    thread,
     time::Duration,
 };
 
@@ -15,19 +14,18 @@ use ambient_brightness::AmbientBrightness;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use crossbeam::{
-    channel::{after, bounded, tick},
+    channel::{bounded, tick, Receiver},
     select,
 };
 use env_logger::Env;
 use kbd_brightness::KBDBrightness;
-use log::{debug, info, trace};
+use log::{info, trace};
 use logind_zbus::session::SessionProxyBlocking;
-use mio::{net::UnixListener, Events, Interest, Poll, Token};
+use ouroboros::self_referencing;
 use screen_brightness::ScreenBrightness;
-use zbus::{
-    blocking::Connection,
-    zvariant::{Endian, ReadBytes, WriteBytes},
-};
+use zbus::blocking::Connection;
+
+use crate::{control_client::ControlClient, control_server::ControlServer};
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -45,16 +43,79 @@ fn read_value(path: &str) -> Result<u32> {
     Ok(res)
 }
 
-fn update(
-    ambient_brightness: &mut AmbientBrightness,
-    kbd_brightness: &mut KBDBrightness,
-    screen_brightness: &mut ScreenBrightness,
-) -> Result<()> {
-    let new_val = ambient_brightness.update()?;
-    trace!("New Val POST: {}", new_val);
-    kbd_brightness.adjust(new_val)?;
-    screen_brightness.adjust(new_val)?;
-    Ok(())
+#[self_referencing]
+struct AmbientBrightnessController<'a> {
+    ambient_brightness: AmbientBrightness,
+    proxy: SessionProxyBlocking<'a>,
+    #[borrows(proxy)]
+    #[not_covariant]
+    kbd_brightness: KBDBrightness<'this>,
+    #[borrows(proxy)]
+    #[not_covariant]
+    screen_brightness: ScreenBrightness<'this>,
+    close_receiver: Receiver<()>,
+    command_receiver: Receiver<u8>,
+}
+
+impl<'a> AmbientBrightnessController<'a> {
+    fn create(close_receiver: Receiver<()>, command_receiver: Receiver<u8>) -> Result<Self> {
+        let connection = Connection::system()?;
+        let proxy = SessionProxyBlocking::builder(&connection)
+            .path("/org/freedesktop/login1/session/auto")?
+            .build()?;
+
+        let ambient_brightness = AmbientBrightness::new()?.init()?;
+
+        Self::try_new(
+            ambient_brightness,
+            proxy,
+            |proxy: &SessionProxyBlocking| {
+                Ok(KBDBrightness::new(proxy, "leds", "asus::kbd_backlight"))
+            },
+            |proxy: &SessionProxyBlocking| {
+                ScreenBrightness::new(proxy, "backlight", "intel_backlight")
+            },
+            close_receiver,
+            command_receiver,
+        )
+    }
+
+    fn update(&mut self) -> Result<()> {
+        let new_val = self.with_ambient_brightness_mut(|x| x.update())?;
+        trace!("New Val POST: {}", new_val);
+        self.with_kbd_brightness(|x| x.adjust(new_val))?;
+        self.with_screen_brightness(|x| x.adjust(new_val))?;
+        Ok(())
+    }
+
+    fn run(mut self) -> Result<()> {
+        let ticker = tick(Duration::from_secs(5));
+        self.update()?;
+
+        loop {
+            select! {
+                recv(self.borrow_close_receiver()) -> _ => {
+                    break
+                },
+                recv(self.borrow_command_receiver()) -> msg => match msg? {
+                    0 => {
+                        self.with_ambient_brightness_mut(|x| x.dim());
+                        self.update()?
+                    },
+
+                    1 => {
+                        self.with_ambient_brightness_mut(|x| x.undim());
+                        self.update()?
+                    },
+                    _ => ()
+                },
+                recv(ticker) -> _  => {
+                        self.update()?
+                },
+            }
+        }
+        Ok(())
+    }
 }
 
 fn main() -> Result<()> {
@@ -72,96 +133,25 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.server {
-        let connection = Connection::system()?;
-        let proxy = SessionProxyBlocking::builder(&connection)
-            .path("/org/freedesktop/login1/session/auto")?
-            .build()?;
+        let (control_server, command_receiver) = ControlServer::new()?;
+        let ambient_brightness_controller =
+            AmbientBrightnessController::create(close_receiver, command_receiver)?;
+        let join_handle = control_server.run(exit_bool1);
 
-        let mut ambient_brightness = AmbientBrightness::new()?.init()?;
-        let mut kbd_brightness = KBDBrightness::new(&proxy, "leds", "asus::kbd_backlight");
-        let mut screen_brightness = ScreenBrightness::new(&proxy, "backlight", "intel_backlight")?;
-        let (command_sender, command_receiver) = bounded(1);
-
-        let join_handle: thread::JoinHandle<Result<()>> = thread::spawn(move || {
-            let socket_path = Path::new(&env::temp_dir()).join("ambient_brightness.sock");
-            fs::remove_file(socket_path.clone())?;
-            let mut listener = UnixListener::bind(socket_path)?;
-            let mut poll = Poll::new()?;
-            let mut events = Events::with_capacity(1024);
-            poll.registry().register(
-                &mut listener,
-                Token(0),
-                Interest::READABLE | Interest::WRITABLE,
-            )?;
-
-            loop {
-                if exit_bool1.load(atomic::Ordering::Relaxed) {
-                    break;
-                }
-                poll.poll(&mut events, Some(Duration::from_millis(100)))?;
-
-                for event in &events {
-                    debug!("Event: {:?}", event);
-                    if event.token() == Token(0) && event.is_readable() {
-                        let (mut socket, _addr) = listener.accept()?;
-                        let socket_read = socket.read_u8(Endian::native())?;
-                        debug!("Got Message: {}", socket_read);
-
-                        match socket_read {
-                            0 => command_sender.send(0)?,
-                            1 => command_sender.send(1)?,
-                            _ => (),
-                        }
-                    }
-                }
-            }
-
-            info!("Server Thread Exiting");
-            Ok(())
-        });
-
-        let ticker = tick(Duration::from_secs(5));
-        let first = after(Duration::from_millis(1));
-
-        loop {
-            select! {
-                recv(close_receiver) -> _ => {
-                    break
-                },
-                recv(command_receiver) -> msg => match msg? {
-                    0 => {
-                        ambient_brightness.dim();
-                        update(&mut ambient_brightness, &mut kbd_brightness, &mut screen_brightness)?
-                    },
-
-                    1 => {
-                        ambient_brightness.undim();
-                        update(&mut ambient_brightness, &mut kbd_brightness, &mut screen_brightness)?
-                    },
-                    _ => ()
-                },
-                recv(ticker) -> _  => {
-                        update(&mut ambient_brightness, &mut kbd_brightness, &mut screen_brightness)?
-                },
-                recv(first) -> _ => {
-                        update(&mut ambient_brightness, &mut kbd_brightness, &mut screen_brightness)?
-                },
-            }
-        }
+        ambient_brightness_controller.run()?;
 
         info!("Waiting for Server Thread to stop.");
         join_handle
             .join()
             .map_err(|e| anyhow!("Error waiting for Server Thread: {:?}", e))??;
     } else {
-        let socket_path = Path::new(&env::temp_dir()).join("ambient_brightness.sock");
-        let mut client = std::os::unix::net::UnixStream::connect(socket_path)?;
+        let mut client = ControlClient::new()?;
+
         if args.dim {
-            client.write_u8(Endian::native(), 0)?;
+            client.dim()?;
         } else {
-            client.write_u8(Endian::native(), 1)?;
+            client.undim()?;
         }
-        client.flush()?;
         info!("Done");
     }
 

@@ -4,15 +4,15 @@ use logind_zbus::session::SessionProxyBlocking;
 
 use crate::read_value;
 
-pub(crate) struct KBDBrightness<'a, 'b> {
-    proxy: &'a SessionProxyBlocking<'b>,
+pub(crate) struct KBDBrightness<'a> {
+    proxy: &'a SessionProxyBlocking<'a>,
     subsystem: &'a str,
     name: &'a str,
 }
 
-impl<'a, 'b> KBDBrightness<'a, 'b> {
+impl<'a> KBDBrightness<'a> {
     pub(crate) fn new(
-        proxy: &'a SessionProxyBlocking<'b>,
+        proxy: &'a SessionProxyBlocking<'a>,
         subsystem: &'a str,
         name: &'a str,
     ) -> Self {
