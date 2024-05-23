@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    io::ErrorKind,
     path::Path,
     sync::{
         atomic::{self, AtomicBool},
@@ -31,7 +32,11 @@ pub struct ControlServer {
 impl ControlServer {
     pub fn new() -> Result<(Self, Receiver<Command>)> {
         let socket_path = Path::new(&env::temp_dir()).join("ambient_brightness.sock");
-        fs::remove_file(socket_path.clone())?;
+        match fs::remove_file(socket_path.clone()) {
+            Ok(()) => (),
+            Err(e) if e.kind() == ErrorKind::NotFound => (),
+            err => err?,
+        };
         let mut listener = UnixListener::bind(socket_path)?;
         let poll = Poll::new()?;
         poll.registry().register(
