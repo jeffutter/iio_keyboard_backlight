@@ -57,7 +57,7 @@ impl<'a> ScreenBrightness<'a> {
 
         let offset_new_pct = match self.offset {
             0..=i8::MAX => new_pct.saturating_add(self.offset.unsigned_abs() as u32),
-            i8::MIN..=-1 => new_pct.saturating_add(self.offset.unsigned_abs() as u32),
+            i8::MIN..=-1 => new_pct.saturating_sub(self.offset.unsigned_abs() as u32),
         };
 
         let new_level = self
