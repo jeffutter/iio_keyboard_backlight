@@ -15,6 +15,7 @@ use byteorder::ReadBytesExt;
 use crossbeam::channel::{bounded, Receiver, Sender};
 use log::{debug, info, trace};
 use mio::{net::UnixListener, Events, Interest, Poll, Token};
+use retry::{delay::Fixed, retry, OperationResult};
 
 pub enum Command {
     Idle,
@@ -72,8 +73,25 @@ impl ControlServer {
                 for event in &events {
                     debug!("Event: {:?}", event);
                     if event.token() == Token(0) && event.is_readable() {
-                        let (mut socket, _addr) = self.listener.accept()?;
-                        let socket_read = socket.read_u8()?;
+                        let (mut socket, _addr) = retry(Fixed::from_millis(100).take(3), || {
+                            match self.listener.accept() {
+                                Err(e) => match e.kind() {
+                                    ErrorKind::Interrupted => OperationResult::Retry(e),
+                                    _ => OperationResult::Err(e),
+                                },
+                                Ok(socket_addr) => OperationResult::Ok(socket_addr),
+                            }
+                        })?;
+
+                        let socket_read =
+                            retry(Fixed::from_millis(100).take(3), || match socket.read_u8() {
+                                Err(e) => match e.kind() {
+                                    ErrorKind::Interrupted => OperationResult::Retry(e),
+                                    _ => OperationResult::Err(e),
+                                },
+                                Ok(socket_read) => OperationResult::Ok(socket_read),
+                            })?;
+
                         trace!("Got Message: {}", socket_read);
 
                         match socket_read {
