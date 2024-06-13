@@ -161,7 +161,7 @@ impl<'a> AmbientBrightnessController<'a> {
                 },
                 recv(self.borrow_command_receiver()) -> msg => match msg {
                     Err(e) => {
-                        info!("Command Channel Terminated: #{:#}", e);
+                        info!("Command Channel Terminated: {:#}", e);
                         break;
                     },
                     Ok(msg) => match msg {

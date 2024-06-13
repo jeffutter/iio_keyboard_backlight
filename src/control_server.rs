@@ -13,7 +13,7 @@ use std::{
 use anyhow::Result;
 use byteorder::ReadBytesExt;
 use crossbeam::channel::{bounded, Receiver, Sender};
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use mio::{net::UnixListener, Events, Interest, Poll, Token};
 use retry::{delay::Fixed, retry, OperationResult};
 
@@ -67,17 +67,34 @@ impl ControlServer {
                     break;
                 }
 
-                self.poll
-                    .poll(&mut events, Some(Duration::from_millis(100)))?;
+                retry(Fixed::from_millis(100), || {
+                    match self
+                        .poll
+                        .poll(&mut events, Some(Duration::from_millis(100)))
+                    {
+                        Ok(_) => OperationResult::Ok(()),
+                        Err(e) => match e.kind() {
+                            ErrorKind::Interrupted => OperationResult::Retry(e),
+                            _ => {
+                                error!("Poll Error: {:?}", e);
+                                OperationResult::Err(e)
+                            }
+                        },
+                    }
+                })?;
 
                 for event in &events {
-                    debug!("Event: {:?}", event);
+                    trace!("Event: {:?}", event);
+
                     if event.token() == Token(0) && event.is_readable() {
                         let (mut socket, _addr) = retry(Fixed::from_millis(100).take(3), || {
                             match self.listener.accept() {
                                 Err(e) => match e.kind() {
                                     ErrorKind::Interrupted => OperationResult::Retry(e),
-                                    _ => OperationResult::Err(e),
+                                    _ => {
+                                        error!("Accept Error: {:?}", e);
+                                        OperationResult::Err(e)
+                                    }
                                 },
                                 Ok(socket_addr) => OperationResult::Ok(socket_addr),
                             }
@@ -87,12 +104,15 @@ impl ControlServer {
                             retry(Fixed::from_millis(100).take(3), || match socket.read_u8() {
                                 Err(e) => match e.kind() {
                                     ErrorKind::Interrupted => OperationResult::Retry(e),
-                                    _ => OperationResult::Err(e),
+                                    _ => {
+                                        error!("Read Error: {:?}", e);
+                                        OperationResult::Err(e)
+                                    }
                                 },
                                 Ok(socket_read) => OperationResult::Ok(socket_read),
                             })?;
 
-                        trace!("Got Message: {}", socket_read);
+                        debug!("Got Message: {}", socket_read);
 
                         match socket_read {
                             0 => self.command_sender.send(Command::Idle)?,
