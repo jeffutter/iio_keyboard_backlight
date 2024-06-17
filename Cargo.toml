@@ -15,7 +15,7 @@ env_logger = "0.11.3"
 industrial-io = { version = "0.5.2", default-features = false }
 log = "0.4.21"
 logind-zbus = "4.0.3"
-mio = { version = "0.8.11", features = ["net", "os-poll"] }
+mio = { version = "1.0.0", features = ["net", "os-poll"] }
 ouroboros = "0.18.3"
 retry = "2.0.0"
 yata = { version = "0.7.0", default-features = false }
