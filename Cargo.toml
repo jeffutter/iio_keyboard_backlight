@@ -13,7 +13,7 @@ crossbeam = "0.8.4"
 ctrlc = "3.4.4"
 env_logger = "0.11.3"
 industrial-io = { version = "0.5.2", default-features = false }
-log = "0.4.21"
+log = "0.4.22"
 logind-zbus = "4.0.3"
 mio = { version = "0.8.11", features = ["net", "os-poll"] }
 ouroboros = "0.18.3"
