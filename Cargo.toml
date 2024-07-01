@@ -19,7 +19,7 @@ mio = { version = "0.8.11", features = ["net", "os-poll"] }
 ouroboros = "0.18.3"
 retry = "2.0.0"
 yata = { version = "0.7.0", default-features = false }
-zbus = { version = "4.2.0", default-features = false }
+zbus = { version = "4.3.1", default-features = false }
 
 [profile.release]
 lto = true
